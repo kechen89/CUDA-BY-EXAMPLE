@@ -10,7 +10,7 @@ int main(void) {
         cudaGetDeviceProperties(&prop, i);
         std::cout << "--- General Information for device" << i << "---" << std::endl;
         std::cout << "Name:" << prop.name << std::endl;
-        std::cout << "Compute capability:" << prop.major << prop.minor << std::endl;
+        std::cout << "Compute capability:" << "major " << prop.major << "minor " << prop.minor << std::endl;
         std::cout << "Clock rate:" << prop.clockRate << std::endl;
         std::cout << "Device copy overlap:" << std::endl;
         if (prop.deviceOverlap)
@@ -33,8 +33,8 @@ int main(void) {
         std::cout << "Registers per mp:" << prop.regsPerBlock << std::endl;
         std::cout << "Threads in warp:" << prop.warpSize << std::endl;
         std::cout << "Max threads per block:" << prop.maxThreadsPerBlock << std::endl;
-        std::cout << "Max threads dimensions:" << prop.maxThreadsDim[0] << prop.maxThreadsDim[1] << prop.maxThreadsDim[2] << std::endl;
-        std::cout << "Max grid dimensions:" << prop.maxGridSize[0] << prop.maxGridSize[1] << prop.maxGridSize[2] << std::endl;      
+        std::cout << "Max threads dimensions:" << prop.maxThreadsDim[0] << "  " << prop.maxThreadsDim[1] << "  " << prop.maxThreadsDim[2] << std::endl;
+        std::cout << "Max grid dimensions:" << prop.maxGridSize[0] << "  " << prop.maxGridSize[1] << "  " << prop.maxGridSize[2] << std::endl;      
     } 
 
 }
