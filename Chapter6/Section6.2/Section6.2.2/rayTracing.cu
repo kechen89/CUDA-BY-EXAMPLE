@@ -70,7 +70,7 @@ int main(void){
     cudaEventRecord(stop,0);
     cudaEventSynchronize(stop);
 
-    float elapseTime;
+    float elapsedTime;
     cudaEventElapseTime(&elapsedTime, start, stop);
    
     std::cout << "Time to generate: " << elapsedTime << "ms" << std::endl;
