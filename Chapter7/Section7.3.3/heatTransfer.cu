@@ -83,7 +83,7 @@ void anim_exit(DataBlock *d){
     cudaFree(d->dev_constSrc);
 
     cudaEventDestroy(d->start);
-    cudaEventDestroy(d-stop);
+    cudaEventDestroy(d->stop);
 }
 
 int main(void){
