@@ -8,6 +8,12 @@
 #define MIN_TEMP 0.0001f
 #define SPEED 0.25f
 
+// these exist on the GPU side
+texture<float> texConstSrc;
+texture<float> texIn;
+texture<float> texOut;
+
+
 // globals needed by the update routine
 struct DataBlock{
     unsigned char *output_bitmap;
@@ -26,10 +32,12 @@ __global__ void copy_const_kernel(float *iptr, const float *cptr){
     int y = threadIdx.y + blockIdx.y * blockDim.y;
     int offset = x + y * blockDim.x * gridDim.x;
 
-    if (cptr[offset] != 0) iptr[offset] = cptr[offset];
+    float c = tex1Dfetch(texConstSrc,offset);
+    if (c != 0) 
+        iptr[offset] = c;
 }
 
-__global__ void blend_kernel(float *outSrc, const float *inSrc){
+__global__ void blend_kernel(float *dst, const float *dstOut){
     // map from threadIdx/BlockIdx to pixel position
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -46,7 +54,22 @@ __global__ void blend_kernel(float *outSrc, const float *inSrc){
     if (y == 0) top += DIM;
     if (y == DIM - 1) bottom -= DIM;
 
-    outSrc[offset] = inSrc[offset] + SPEED * (inSrc[top] + inSrc[bottom] + inSrc[left] + inSrc[right] - inSrc[offset]*4);
+    float t, l, c, r, b;
+   
+    if (dstOut){
+        t = tex1Dfetch(texIn, top);
+        l = tex1Dfetch(texIn, left);
+        c = tex1Dfetch(texIn, offset);
+        r = tex1Dfetch(texIn, right);
+        b = tex1Dfetch(texIn, bottom);
+    } else {
+        t = tex1Dfetch(texOut, top);
+        l = tex1Dfetch(texOut, left);
+        c = tex1Dfetch(texOut, offset);
+        r = tex1Dfetch(texOut, right);
+        b = tex1Dfetch(texOut, bottom);
+    }
+    dst[offset] = c + SPEED * (t + b + r + l - 4 * c);
 }
 
 void anim_gpu(DataBlock *d, int ticks){
@@ -55,29 +78,41 @@ void anim_gpu(DataBlock *d, int ticks){
     dim3 threads(16, 16);
     CPUAnimBitmap *bitmap = d->bitmap;
 
+    // since tex is global and bound, we have to use a flag to select which is in/out per iteration
+    volatile bool dstOut = true;
     for (int i = 0; i < 90; i++){
-        copy_const_kernel<<<blocks,threads>>>(d->dev_inSrc, d->dev_constSrc);
-
-        blend_kernel<<<blocks,threads>>>(d->dev_outSrc,d->dev_inSrc);
-   
-        swap(d->dev_inSrc, d->dev_outSrc);
+        float *in, *out;
+        if (dstOut){
+            in = d->dev_inSrc;
+            out = d->dev_outSrc;
+        }else{
+            out = d->dev_inSrc;
+            in = d->dev_outSrc;
+        }
+        copy_const_kernel<<<blocks,threads>>>(in);
+        blend_kernel<<<blocks,threads>>>(out,dstOut);
+        dstOut = !dstOut;
     }
+   
+    float_to_color<<<blocks,threads>>>(d->output_bitmap,d->dev_inSrc);
 
-        float_to_color<<<blocks,threads>>>(d->output_bitmap,d->dev_inSrc);
+    cudaMemcpy(bitmap->get_ptr(),d->output_bitmap,bitmap->image_size(),cudaMemcpyDeviceToHost);
+    cudaEventRecord(d->stop,0);
+    cudaEventSynchronize(d->stop);
 
-        cudaMemcpy(bitmap->get_ptr(),d->output_bitmap,bitmap->image_size(),cudaMemcpyDeviceToHost);
-        cudaEventRecord(d->stop,0);
-        cudaEventSynchronize(d->stop);
+    float elapsedTime;
+    cudaEventElapsedTime(&elapsedTime, d->start, d->stop);
 
-        float elapsedTime;
-        cudaEventElapsedTime(&elapsedTime, d->start, d->stop);
-
-        d->totalTime += elapsedTime;
-        ++d -> frames;
-        std::cout << "Average Time per frame: " << d->totalTime/d->frames << "ms" << std::endl;
+    d->totalTime += elapsedTime;
+    ++d -> frames;
+    std::cout << "Average Time per frame: " << d->totalTime/d->frames << "ms" << std::endl;
 }
 
 void anim_exit(DataBlock *d){
+    cudaUnbindTexture(texIn);
+    cudaUnbindTexture(texOut);
+    cudaUnbindTexture(texConstSrc);
+
     cudaFree(d->dev_inSrc);
     cudaFree(d->dev_outSrc);
     cudaFree(d->dev_constSrc);
@@ -101,6 +136,10 @@ int main(void){
     cudaMalloc((void**)&data.dev_inSrc, bitmap.image_size());
     cudaMalloc((void**)&data.dev_outSrc, bitmap.image_size());
     cudaMalloc((void**)&data.dev_constSrc, bitmap.image_size());
+
+    cudaBindTexture(NULL, texConstSrc, data.dev_constSrc, bitmap.image_size());
+    cudaBindTexture(NULL, texIn, data.dev_inSrc, bitmap.image_size());
+    cudaBindTexture(NULL,texOut, data.dev_outSrc, bitmap.image_size());    
 
     float *temp = (float*)malloc(bitmap.image_size());
     for (int i = 0; i < DIM * DIM; i++){
