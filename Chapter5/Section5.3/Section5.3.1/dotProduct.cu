@@ -44,7 +44,7 @@ int main(void){
     // allocate memory on the CPU side
     a = (float*)malloc(N * sizeof(float));
     b = (float*)malloc(N * sizeof(float));
-    partial_c = (float*)malloc(N * sizeof(float));
+    partial_c = (float*)malloc(blocksPerGrid * sizeof(float));
 
     // allocate the memory on the GPU
     cudaMalloc((void**)&dev_a, N * sizeof(float));
