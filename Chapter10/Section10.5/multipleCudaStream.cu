@@ -34,16 +34,21 @@ int main(){
     cudaEventRecord(start, 0);
 
     // initialize the stream
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
+    cudaStream_t stream0, stream1;
+    cudaStreamCreate(&stream0);
+    cudaStreamCreate(&stream1);
 
     int *host_a, *host_b, *host_c;
-    int *dev_a, *dev_b, *dev_c;
+    int *dev_a0, *dev_b0, *dev_c0;     // GPU buffers for stream0
+    int *dev_a1, *dev_b1, *dev_c1;     // GPU buffers for stream1
 
     // allocate the memory on the GPU
-    cudaMalloc((void**)&dev_a, N * sizeof(int));
-    cudaMalloc((void**)&dev_b, N * sizeof(int));
-    cudaMalloc((void**)&dev_c, N * sizeof(int));
+    cudaMalloc((void**)&dev_a0, N * sizeof(int));
+    cudaMalloc((void**)&dev_b0, N * sizeof(int));
+    cudaMalloc((void**)&dev_c0, N * sizeof(int));
+    cudaMalloc((void**)&dev_a1, N * sizeof(int));
+    cudaMalloc((void**)&dev_b1, N * sizeof(int));
+    cudaMalloc((void**)&dev_c1, N * sizeof(int));
 
     // allocate page-locked memory, used to stream
     cudaHostAlloc((void**)&host_a, FULL_DATA_SIZE * sizeof(int), cudaHostAllocDefault);
@@ -56,18 +61,28 @@ int main(){
     }
 
     // now loop over full data, in bite-sized chunks
-    for (int i = 0; i < FULL_DATA_SIZE; i += N) {
-        cudaMemcpyAsync(dev_a, host_a + i, N * sizeof(int), cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(dev_b, host_b + i, N * sizeof(int), cudaMemcpyHostToDevice, stream);
+    for (int i = 0; i < FULL_DATA_SIZE; i += N*2) {
+        // copy the locked memory to the device, async
+        cudaMemcpyAsync(dev_a0, host_a + i, N * sizeof(int), cudaMemcpyHostToDevice, stream0);
+        cudaMemcpyAsync(dev_b0, host_b + i, N * sizeof(int), cudaMemcpyHostToDevice, stream0);
         
-        kernel<<<N/256, 256, 0, stream>>>(dev_a, dev_b, dev_c);
+        kernel<<<N/256, 256, 0, stream0>>>(dev_a0, dev_b0, dev_c0);
 
         // copy the data from device to locked memory
-        cudaMemcpyAsync(host_c + i, dev_c, N * sizeof(int), cudaMemcpyDeviceToHost, stream);
+        cudaMemcpyAsync(host_c + i, dev_c0, N * sizeof(int), cudaMemcpyDeviceToHost, stream0);
+
+        // copy the locked memory to the device, async
+        cudaMemcpyAsync(dev_a1, host_a + i + N, N * sizeof(int), cudaMemcpyHostToDevice, stream1);
+        cudaMemcpyAsync(dev_b1, host_b + i + N, N * sizeof(int), cudaMemcpyHostToDevice, stream1);
+
+        kernel <<<N/256, 256, 0, stream1>>>(dev_a1, dev_b1, dev_c1);
+
+        // copy the data from device to locked memory
+        cudaMemcpyAsync(host_c + i + N, dev_c1, N * sizeof(int), cudaMemcpyDeviceToHost, stream1);
     }
 
-    // copy result chunk from locked to full buffer
-    cudaStreamSynchronize(stream);
+    cudaStreamSynchronize(stream0);
+    cudaStreamSynchronize(stream1);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&elapsedTime, start, stop);
@@ -77,10 +92,15 @@ int main(){
     cudaFreeHost(host_a);
     cudaFreeHost(host_b);
     cudaFreeHost(host_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
-    cudaFree(dev_c);
+    cudaFree(dev_a0);
+    cudaFree(dev_b0);
+    cudaFree(dev_c0);
+    cudaFree(dev_a1);
+    cudaFree(dev_b1);
+    cudaFree(dev_c1);
 
-    cudaStreamDestroy(stream);
+    cudaStreamDestroy(stream0);
+    cudaStreamDestroy(stream1);
+    
     return 0;
 }
